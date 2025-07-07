@@ -7,6 +7,7 @@ from email.message import EmailMessage
 import os
 import threading
 from contextlib import contextmanager
+import time
 
 app = FastAPI()
 
@@ -37,9 +38,30 @@ class SMTPPool:
                 smtp_user = os.environ.get("SMTP_USER")
                 smtp_pass = os.environ.get("SMTP_PASS")
                 
-                smtp = smtplib.SMTP_SSL(smtp_host, smtp_port)
+                smtp = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
                 smtp.login(smtp_user, smtp_pass)
                 self.connections[thread_id] = smtp
+            else:
+                # 기존 연결 상태 확인
+                try:
+                    connection = self.connections[thread_id]
+                    # 연결 상태 확인 (NOOP 명령어 사용)
+                    connection.noop()
+                except Exception:
+                    # 연결이 끊어진 경우 재생성
+                    try:
+                        self.connections[thread_id].quit()
+                    except:
+                        pass
+                    
+                    smtp_host = "smtp.worksmobile.com"
+                    smtp_port = 465
+                    smtp_user = os.environ.get("SMTP_USER")
+                    smtp_pass = os.environ.get("SMTP_PASS")
+                    
+                    smtp = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+                    smtp.login(smtp_user, smtp_pass)
+                    self.connections[thread_id] = smtp
             
             connection = self.connections[thread_id]
         
@@ -65,8 +87,34 @@ class MailRequestBase64(BaseModel):
     sender_email: str
 
 def send_email_background(msg):
-    with smtp_pool.get_connection() as smtp:
-        smtp.send_message(msg)
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            with smtp_pool.get_connection() as smtp:
+                # 연결 상태 재확인
+                try:
+                    smtp.noop()
+                except Exception:
+                    # 연결이 끊어진 경우 예외 발생시켜 재연결 유도
+                    raise Exception("SMTP 연결이 끊어졌습니다.")
+                
+                # 타임아웃 설정
+                smtp.timeout = 30
+                smtp.send_message(msg)
+                print("이메일 전송 성공")
+                return  # 성공하면 함수 종료
+        except Exception as e:
+            retry_count += 1
+            print(f"이메일 전송 실패 (시도 {retry_count}/{max_retries}): {str(e)}")
+            
+            if retry_count >= max_retries:
+                print(f"최대 재시도 횟수 초과. 이메일 전송 실패: {str(e)}")
+                raise e
+            
+            # 재시도 전 잠시 대기 (점진적으로 증가)
+            time.sleep(retry_count * 2)
 
 @app.post("/send-email-base64")
 def send_email_base64(data: MailRequestBase64, background_tasks: BackgroundTasks):
