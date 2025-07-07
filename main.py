@@ -128,7 +128,7 @@ def send_email_base64(data: MailRequestBase64, background_tasks: BackgroundTasks
         msg = EmailMessage()
         msg["Subject"] = f"견적서 발송 - {data.biz_name} | {data.sender_email}"
         msg["From"] = os.environ.get("SMTP_USER")
-        msg["To"] = "placeja@gmail.com"
+        msg["To"] = os.environ.get("SMTP_TO")
         msg.set_content(f"""
         안녕하세요.
         {data.biz_name} 고객님이 견적서를 요청하셨습니다.
