@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
@@ -64,6 +64,10 @@ class MailRequestBase64(BaseModel):
     biz_name: str
     sender_email: str
 
+class MailRequestFile(BaseModel):
+    biz_name: str
+    sender_email: str
+
 def send_email_background(msg):
     with smtp_pool.get_connection() as smtp:
         smtp.send_message(msg)
@@ -75,6 +79,44 @@ def send_email_base64(data: MailRequestBase64, background_tasks: BackgroundTasks
         
         # base64 디코딩
         pdf_content = base64.b64decode(data.pdf_base64)
+        
+        # 이메일 구성
+        msg = EmailMessage()
+        msg["Subject"] = f"견적서 발송 - {data.biz_name} | {data.sender_email}"
+        msg["From"] = os.environ.get("SMTP_USER")
+        msg["To"] = "placeja@gmail.com"
+        msg.set_content(f"""
+        안녕하세요.
+        {data.biz_name} 고객님이 견적서를 요청하셨습니다.
+
+        이메일: {data.sender_email}
+        """)
+
+        # 첨부파일
+        msg.add_attachment(
+            pdf_content,
+            maintype='application',
+            subtype='pdf',
+            filename=f"견적서_{data.biz_name}.pdf"
+        )
+
+        # 비동기로 전송
+        background_tasks.add_task(send_email_background, msg)
+
+        return {"success": True, "message": "메일 발송 요청이 접수되었습니다."}
+
+    except Exception as e:
+        return {"success": False, "message": f"에러 발생: {str(e)}"}
+
+@app.post("/send-email-file")
+def send_email_file(
+    pdf_file: UploadFile = File(...),
+    data: MailRequestFile = Form(...),
+    background_tasks: BackgroundTasks = None
+):
+    try:
+        # 파일 내용 읽기
+        pdf_content = pdf_file.file.read()
         
         # 이메일 구성
         msg = EmailMessage()
