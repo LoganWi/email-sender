@@ -64,10 +64,6 @@ class MailRequestBase64(BaseModel):
     biz_name: str
     sender_email: str
 
-class MailRequestFile(BaseModel):
-    biz_name: str
-    sender_email: str
-
 def send_email_background(msg):
     with smtp_pool.get_connection() as smtp:
         smtp.send_message(msg)
@@ -111,7 +107,8 @@ def send_email_base64(data: MailRequestBase64, background_tasks: BackgroundTasks
 @app.post("/send-email-file")
 def send_email_file(
     pdf_file: UploadFile = File(...),
-    data: MailRequestFile = Form(...),
+    biz_name: str = Form(...),
+    sender_email: str = Form(...),
     background_tasks: BackgroundTasks = None
 ):
     try:
@@ -120,14 +117,14 @@ def send_email_file(
         
         # 이메일 구성
         msg = EmailMessage()
-        msg["Subject"] = f"견적서 발송 - {data.biz_name} | {data.sender_email}"
+        msg["Subject"] = f"견적서 발송 - {biz_name} | {sender_email}"
         msg["From"] = os.environ.get("SMTP_USER")
         msg["To"] = "placeja@gmail.com"
         msg.set_content(f"""
         안녕하세요.
-        {data.biz_name} 고객님이 견적서를 요청하셨습니다.
+        {biz_name} 고객님이 견적서를 요청하셨습니다.
 
-        이메일: {data.sender_email}
+        이메일: {sender_email}
         """)
 
         # 첨부파일
@@ -135,7 +132,7 @@ def send_email_file(
             pdf_content,
             maintype='application',
             subtype='pdf',
-            filename=f"견적서_{data.biz_name}.pdf"
+            filename=f"견적서_{biz_name}.pdf"
         )
 
         # 비동기로 전송
